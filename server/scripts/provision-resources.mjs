@@ -30,6 +30,17 @@ if (!d1) {
   });
 }
 
+let workersSubdomain;
+try {
+  workersSubdomain = await cf(`/accounts/${accountId}/workers/subdomain`);
+} catch {
+  workersSubdomain = await cf(`/accounts/${accountId}/workers/subdomain`, {
+    method: "PUT",
+    body: JSON.stringify({ subdomain: `gorilla-${accountId.slice(0, 8)}` })
+  });
+}
+if (!workersSubdomain?.subdomain) throw new Error("Could not provision a workers.dev subdomain.");
+
 const kvList = await cf(`/accounts/${accountId}/storage/kv/namespaces?per_page=100`);
 let kv = kvList.find((item) => item.title === "GORILLA_CONTROL_OAUTH");
 if (!kv) {
@@ -43,6 +54,8 @@ if (!d1?.uuid || !kv?.id) throw new Error("Cloudflare did not return the D1 or K
 const configPath = new URL("../wrangler.jsonc", import.meta.url);
 const config = JSON.parse(await readFile(configPath, "utf8"));
 config.account_id = accountId;
+config.vars ??= {};
+config.vars.MCP_RESOURCE = `https://gorilla-control-mcp.${workersSubdomain.subdomain}.workers.dev/mcp`;
 config.d1_databases[0].database_id = d1.uuid;
 config.kv_namespaces[0].id = kv.id;
 await writeFile(configPath, JSON.stringify(config, null, 2) + "\n");

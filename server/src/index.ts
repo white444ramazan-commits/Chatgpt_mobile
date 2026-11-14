@@ -1,4 +1,4 @@
-import { WorkerEntrypoint } from "cloudflare:workers";
+import { WorkerEntrypoint, env } from "cloudflare:workers";
 import {
   AuthorizationError,
   OAuthProvider,
@@ -14,6 +14,7 @@ interface Env {
   OAUTH_PROVIDER: OAuthHelpers;
   DEVICE_PAIRING_CODE: string;
   OWNER_PASSPHRASE: string;
+  MCP_RESOURCE: string;
 }
 
 interface AuthProps {
@@ -423,7 +424,12 @@ export default new OAuthProvider<Env>({
   authorizeEndpoint: "/authorize",
   tokenEndpoint: "/oauth/token",
   clientRegistrationEndpoint: "/oauth/register",
-  resourceMetadata: {},
+  resourceMetadata: {
+    resource: env.MCP_RESOURCE,
+    authorization_servers: [new URL(env.MCP_RESOURCE).origin],
+    scopes_supported: ["mcp:read", "mcp:control"],
+    resource_name: APP_NAME
+  },
   scopesSupported: ["mcp:read", "mcp:control", "offline_access"],
   requiredScopes: ["mcp:read"],
   clientIdMetadataDocumentEnabled: true

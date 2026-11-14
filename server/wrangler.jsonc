@@ -8,6 +8,9 @@
     "global_fetch_strictly_public"
   ],
   "workers_dev": true,
+  "vars": {
+    "MCP_RESOURCE": "PROVISIONED_BY_GITHUB_ACTIONS"
+  },
   "account_id": "PROVISIONED_BY_GITHUB_ACTIONS",
   "d1_databases": [
     {
