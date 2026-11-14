@@ -239,17 +239,17 @@ function createServer(db: D1Database, scopes: string[]) {
   server.registerTool(
     "get_device_status",
     { description: "Показывает статус спаренного Android-планшета GORILLA CONTROL.", inputSchema: {} },
-    async () => {
-      if (!canRead) return { isError: true, content: [{ type: "text", text: "Недостаточно прав: mcp:read." }] };
+    async (_args: Record<string, never>) => {
+      if (!canRead) return { isError: true as const, content: [{ type: "text" as const, text: "Недостаточно прав: mcp:read." }] };
       const device = await db.prepare(
         "SELECT device_name, last_seen_ms, model, android_version, root_available, screen_width, screen_height FROM devices WHERE id = ?"
       ).bind(DEVICE_ID).first<{
         device_name: string; last_seen_ms: number | null; model: string | null; android_version: string | null;
         root_available: number | null; screen_width: number | null; screen_height: number | null;
       }>();
-      if (!device) return { content: [{ type: "text", text: "Планшет ещё не спарен." }] };
+      if (!device) return { content: [{ type: "text" as const, text: "Планшет ещё не спарен." }] };
       const online = device.last_seen_ms !== null && Date.now() - device.last_seen_ms < DEVICE_ONLINE_MS;
-      return { content: [{ type: "text", text: JSON.stringify({
+      return { content: [{ type: "text" as const, text: JSON.stringify({
         device: device.device_name, online, lastSeenMs: device.last_seen_ms,
         model: device.model, androidVersion: device.android_version,
         rootAvailable: device.root_available === null ? null : device.root_available === 1,
@@ -266,7 +266,7 @@ function createServer(db: D1Database, scopes: string[]) {
       inputSchema: { x: z.number().int().min(0).max(12000), y: z.number().int().min(0).max(12000) }
     },
     async ({ x, y }) => {
-      if (!canControl) return { isError: true, content: [{ type: "text", text: "Требуется OAuth-разрешение mcp:control." }] };
+      if (!canControl) return { isError: true as const, content: [{ type: "text" as const, text: "Требуется OAuth-разрешение mcp:control." }] };
       return enqueue(db, "tap", { x, y });
     }
   );
@@ -284,7 +284,7 @@ function createServer(db: D1Database, scopes: string[]) {
       }
     },
     async ({ x1, y1, x2, y2, durationMs }) => {
-      if (!canControl) return { isError: true, content: [{ type: "text", text: "Требуется OAuth-разрешение mcp:control." }] };
+      if (!canControl) return { isError: true as const, content: [{ type: "text" as const, text: "Требуется OAuth-разрешение mcp:control." }] };
       return enqueue(db, "swipe", { x1, y1, x2, y2, durationMs });
     }
   );
@@ -296,7 +296,7 @@ function createServer(db: D1Database, scopes: string[]) {
       inputSchema: { packageName: z.string().min(3).max(160).regex(/^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$/) }
     },
     async ({ packageName }) => {
-      if (!canControl) return { isError: true, content: [{ type: "text", text: "Требуется OAuth-разрешение mcp:control." }] };
+      if (!canControl) return { isError: true as const, content: [{ type: "text" as const, text: "Требуется OAuth-разрешение mcp:control." }] };
       return enqueue(db, "launch_app", { packageName });
     }
   );
@@ -305,14 +305,14 @@ function createServer(db: D1Database, scopes: string[]) {
     "get_command_result",
     { description: "Проверяет результат ранее отправленной команды.", inputSchema: { commandId: z.string().uuid() } },
     async ({ commandId }) => {
-      if (!canRead) return { isError: true, content: [{ type: "text", text: "Недостаточно прав: mcp:read." }] };
+      if (!canRead) return { isError: true as const, content: [{ type: "text" as const, text: "Недостаточно прав: mcp:read." }] };
       const row = await db.prepare(
         "SELECT tool_name, status, result_json, created_at_ms, updated_at_ms FROM commands WHERE id = ? AND device_id = ?"
       ).bind(commandId, DEVICE_ID).first<{
         tool_name: string; status: string; result_json: string | null; created_at_ms: number; updated_at_ms: number;
       }>();
-      if (!row) return { content: [{ type: "text", text: "Команда не найдена." }] };
-      return { content: [{ type: "text", text: JSON.stringify({ ...row, result: row.result_json ? JSON.parse(row.result_json) : null }) }] };
+      if (!row) return { content: [{ type: "text" as const, text: "Команда не найдена." }] };
+      return { content: [{ type: "text" as const, text: JSON.stringify({ ...row, result: row.result_json ? JSON.parse(row.result_json) : null }) }] };
     }
   );
 
@@ -320,11 +320,11 @@ function createServer(db: D1Database, scopes: string[]) {
     "list_recent_commands",
     { description: "Показывает последние 10 запросов управления и их статусы.", inputSchema: {} },
     async () => {
-      if (!canRead) return { isError: true, content: [{ type: "text", text: "Недостаточно прав: mcp:read." }] };
+      if (!canRead) return { isError: true as const, content: [{ type: "text" as const, text: "Недостаточно прав: mcp:read." }] };
       const rows = await db.prepare(
         "SELECT id, tool_name, status, created_at_ms, updated_at_ms FROM commands WHERE device_id = ? ORDER BY created_at_ms DESC LIMIT 10"
       ).bind(DEVICE_ID).all();
-      return { content: [{ type: "text", text: JSON.stringify(rows.results ?? []) }] };
+      return { content: [{ type: "text" as const, text: JSON.stringify(rows.results ?? []) }] };
     }
   );
 
@@ -423,6 +423,7 @@ export default new OAuthProvider<Env>({
   authorizeEndpoint: "/authorize",
   tokenEndpoint: "/oauth/token",
   clientRegistrationEndpoint: "/oauth/register",
+  resourceMetadata: {},
   scopesSupported: ["mcp:read", "mcp:control", "offline_access"],
   requiredScopes: ["mcp:read"],
   clientIdMetadataDocumentEnabled: true
