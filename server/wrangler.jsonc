@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gorilla-control-mcp",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-14",
+  "compatibility_flags": [
+    "nodejs_compat",
+    "global_fetch_strictly_public"
+  ],
+  "workers_dev": true,
+  "account_id": "PROVISIONED_BY_GITHUB_ACTIONS",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "gorilla-control-db",
+      "database_id": "PROVISIONED_BY_GITHUB_ACTIONS"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "OAUTH_KV",
+      "id": "PROVISIONED_BY_GITHUB_ACTIONS"
+    }
+  ]
+}

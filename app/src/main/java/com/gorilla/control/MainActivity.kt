@@ -1,31 +1,32 @@
 package com.gorilla.control
 
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
+import android.content.Intent
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import com.gorilla.control.root.DeviceResolution
+import com.gorilla.control.remote.DeviceApi
+import com.gorilla.control.remote.DeviceLinkService
+import com.gorilla.control.remote.DevicePrefs
 import com.gorilla.control.root.RootController
+import com.gorilla.control.root.RootStatus
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 
 private val bg = Color(0xFF090B10)
 private val panel = Color(0xFF171C26)
@@ -36,18 +37,14 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
+            val prefs = getSharedPreferences(DevicePrefs.FILE, MODE_PRIVATE)
             var rootStatus by remember { mutableStateOf("Не проверен") }
-            var resolution by remember { mutableStateOf<DeviceResolution?>(null) }
-            var message by remember { mutableStateOf("Нажми «Проверить Root» и одобри запрос KernelSU") }
-            var x by remember { mutableStateOf("500") }
-            var y by remember { mutableStateOf("500") }
-            var x1 by remember { mutableStateOf("500") }
-            var y1 by remember { mutableStateOf("1200") }
-            var x2 by remember { mutableStateOf("500") }
-            var y2 by remember { mutableStateOf("400") }
-            var duration by remember { mutableStateOf("350") }
-            var packageName by remember { mutableStateOf("com.android.settings") }
-            var screenshot by remember { mutableStateOf<Bitmap?>(null) }
+            var serverUrl by remember { mutableStateOf(prefs.getString(DevicePrefs.SERVER_URL, "") ?: "") }
+            var pairingCode by remember { mutableStateOf("") }
+            var linked by remember { mutableStateOf(!prefs.getString(DevicePrefs.DEVICE_TOKEN, null).isNullOrBlank()) }
+            var connectionState by remember { mutableStateOf(prefs.getString(DevicePrefs.CONNECTION_STATE, "Отключено") ?: "Отключено") }
+            var pendingJson by remember { mutableStateOf(prefs.getString(DevicePrefs.PENDING_COMMAND, null)) }
+            var message by remember { mutableStateOf("Локальное управление доступно через KernelSU.") }
             var busy by remember { mutableStateOf(false) }
             val scope = rememberCoroutineScope()
 
@@ -66,13 +63,19 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            LaunchedEffect(Unit) {
+                while (isActive) {
+                    pendingJson = prefs.getString(DevicePrefs.PENDING_COMMAND, null)
+                    connectionState = prefs.getString(DevicePrefs.CONNECTION_STATE, "Отключено") ?: "Отключено"
+                    linked = !prefs.getString(DevicePrefs.DEVICE_TOKEN, null).isNullOrBlank()
+                    delay(900)
+                }
+            }
+
             MaterialTheme(
                 colorScheme = darkColorScheme(
-                    background = bg,
-                    surface = panel,
-                    primary = accent,
-                    onBackground = Color.White,
-                    onSurface = Color.White
+                    background = bg, surface = panel, primary = accent,
+                    onBackground = Color.White, onSurface = Color.White
                 )
             ) {
                 Column(
@@ -80,25 +83,20 @@ class MainActivity : ComponentActivity() {
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     Text("GORILLA", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Black, color = Color.White)
-                    Text("ROOT CONTROL  /  REDMI PAD 2 PRO", color = muted, style = MaterialTheme.typography.labelMedium)
+                    Text("CONTROL  /  SECURE DEVICE LINK", color = muted, style = MaterialTheme.typography.labelMedium)
 
                     Card(colors = CardDefaults.cardColors(containerColor = panel), shape = RoundedCornerShape(20.dp)) {
                         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Text("СОСТОЯНИЕ УСТРОЙСТВА", color = muted)
                             StatusLine("KernelSU / Root", rootStatus)
-                            StatusLine("Разрешение экрана", resolution?.toString() ?: "Не определено")
+                            StatusLine("Связь с MCP", connectionState)
                             Button(
                                 enabled = !busy,
                                 onClick = {
                                     runTask("Проверяю Root…") {
-                                        val result = withContext(Dispatchers.IO) {
-                                            val detected = RootController.hasRoot()
-                                            val size = if (detected) RootController.getResolution() else null
-                                            detected to size
-                                        }
-                                        rootStatus = if (result.first) "Доступ Root предоставлен" else "Root не предоставлен"
-                                        resolution = result.second
-                                        if (result.first) "Root работает. Разрешение: ${result.second}" else "KernelSU не предоставил Root-доступ"
+                                        val detected = withContext(Dispatchers.IO) { RootStatus.check() }
+                                        rootStatus = if (detected) "Доступ Root обнаружен" else "Root не обнаружен или не разрешён"
+                                        rootStatus
                                     }
                                 },
                                 modifier = Modifier.fillMaxWidth()
@@ -106,137 +104,188 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    Text("УПРАВЛЕНИЕ ЭКРАНОМ", color = muted)
+                    Text("ПОДКЛЮЧЕНИЕ CHATGPT", color = muted)
                     Card(colors = CardDefaults.cardColors(containerColor = panel), shape = RoundedCornerShape(18.dp)) {
                         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text("Нажатие", fontWeight = FontWeight.Bold)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                CoordinateField("X", x, { x = it }, Modifier.weight(1f))
-                                CoordinateField("Y", y, { y = it }, Modifier.weight(1f))
-                            }
-                            Button(
-                                enabled = !busy,
-                                modifier = Modifier.fillMaxWidth(),
-                                onClick = {
-                                    val px = x.toIntOrNull()
-                                    val py = y.toIntOrNull()
-                                    if (px == null || py == null) message = "Введи числовые координаты"
-                                    else runTask("Выполняю нажатие…") {
-                                        withContext(Dispatchers.IO) { RootController.tap(px, py) }
-                                        "Нажатие выполнено: $px, $py"
-                                    }
-                                }
-                            ) { Text("ВЫПОЛНИТЬ TAP") }
-                        }
-                    }
-
-                    Card(colors = CardDefaults.cardColors(containerColor = panel), shape = RoundedCornerShape(18.dp)) {
-                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text("Свайп", fontWeight = FontWeight.Bold)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                CoordinateField("X1", x1, { x1 = it }, Modifier.weight(1f))
-                                CoordinateField("Y1", y1, { y1 = it }, Modifier.weight(1f))
-                            }
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                CoordinateField("X2", x2, { x2 = it }, Modifier.weight(1f))
-                                CoordinateField("Y2", y2, { y2 = it }, Modifier.weight(1f))
-                            }
-                            CoordinateField("Время, мс (80–2000)", duration, { duration = it }, Modifier.fillMaxWidth())
-                            Button(
-                                enabled = !busy,
-                                modifier = Modifier.fillMaxWidth(),
-                                onClick = {
-                                    val values = listOf(x1, y1, x2, y2, duration).map { it.toIntOrNull() }
-                                    if (values.any { it == null }) message = "Проверь координаты и длительность"
-                                    else runTask("Выполняю свайп…") {
-                                        withContext(Dispatchers.IO) {
-                                            RootController.swipe(values[0]!!, values[1]!!, values[2]!!, values[3]!!, values[4]!!)
-                                        }
-                                        "Свайп выполнен"
-                                    }
-                                }
-                            ) { Text("ВЫПОЛНИТЬ SWIPE") }
-                        }
-                    }
-
-                    Card(colors = CardDefaults.cardColors(containerColor = panel), shape = RoundedCornerShape(18.dp)) {
-                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text("Запуск приложения", fontWeight = FontWeight.Bold)
                             OutlinedTextField(
-                                value = packageName,
-                                onValueChange = { packageName = it },
-                                label = { Text("Имя пакета") },
+                                value = serverUrl,
+                                onValueChange = { serverUrl = it },
+                                label = { Text("HTTPS-адрес GORILLA MCP Worker") },
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
                             )
-                            OutlinedButton(
-                                enabled = !busy,
-                                onClick = {
-                                    runTask("Запускаю приложение…") {
-                                        withContext(Dispatchers.IO) { RootController.launchApp(packageName.trim()) }
-                                        "Запуск отправлен: ${packageName.trim()}"
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) { Text("ЗАПУСТИТЬ") }
+                            if (!linked) {
+                                OutlinedTextField(
+                                    value = pairingCode,
+                                    onValueChange = { pairingCode = it },
+                                    label = { Text("DEVICE_PAIRING_CODE") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Button(
+                                    enabled = !busy && serverUrl.isNotBlank() && pairingCode.isNotBlank(),
+                                    onClick = {
+                                        runTask("Сопрягаю планшет…") {
+                                            val paired = withContext(Dispatchers.IO) {
+                                                DeviceApi.pair(serverUrl, pairingCode)
+                                            }
+                                            prefs.edit()
+                                                .putString(DevicePrefs.SERVER_URL, serverUrl.trim().trimEnd('/'))
+                                                .putString(DevicePrefs.DEVICE_TOKEN, paired.token)
+                                                .putBoolean("paired", true)
+                                                .apply()
+                                            pairingCode = ""
+                                            linked = true
+                                            DeviceLinkService.start(this@MainActivity)
+                                            "Планшет спарен. Запущено защищённое HTTPS-соединение."
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Text("PAIR AND CONNECT") }
+                            } else {
+                                Button(
+                                    enabled = !busy,
+                                    onClick = {
+                                        runTask("Запускаю защищённый канал…") {
+                                            prefs.edit().putString(DevicePrefs.SERVER_URL, serverUrl.trim().trimEnd('/')).apply()
+                                            DeviceLinkService.start(this@MainActivity)
+                                            "Канал запускается. Оставь уведомление GORILLA CONTROL включённым."
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Text("ПОДКЛЮЧИТЬ") }
+                                OutlinedButton(
+                                    enabled = !busy,
+                                    onClick = {
+                                        DeviceLinkService.stop(this@MainActivity)
+                                        prefs.edit()
+                                            .remove(DevicePrefs.DEVICE_TOKEN)
+                                            .remove(DevicePrefs.PENDING_COMMAND)
+                                            .putString(DevicePrefs.CONNECTION_STATE, "Отключено")
+                                            .apply()
+                                        linked = false
+                                        connectionState = "Отключено"
+                                        message = "Устройство отключено и отвязано от текущего токена."
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Text("ОТКЛЮЧИТЬ И ОТВЯЗАТЬ") }
+                            }
+                            Text(
+                                "Для сопряжения сервер должен быть развёрнут. Pairing code хранится как секрет Cloudflare Worker и вводится только здесь.",
+                                color = muted,
+                                style = MaterialTheme.typography.bodySmall
+                            )
                         }
                     }
 
-                    Card(colors = CardDefaults.cardColors(containerColor = panel), shape = RoundedCornerShape(18.dp)) {
-                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text("Снимок экрана", fontWeight = FontWeight.Bold)
-                            OutlinedButton(
-                                enabled = !busy,
-                                onClick = {
-                                    runTask("Получаю снимок экрана через Root…") {
-                                        val bytes = withContext(Dispatchers.IO) { RootController.captureScreen() }
-                                        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                                            ?: throw IllegalStateException("Не удалось декодировать PNG")
-                                        screenshot = bitmap
-                                        "Снимок экрана получен (${bitmap.width} × ${bitmap.height})"
+                    pendingJson?.let { raw ->
+                        val command = runCatching { JSONObject(raw) }.getOrNull()
+                        if (command != null) {
+                            val commandId = command.optString("id")
+                            val commandName = command.optString("name")
+                            val payload = command.optJSONObject("payload") ?: JSONObject()
+                            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF272034)), shape = RoundedCornerShape(18.dp)) {
+                                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text("ЗАПРОС ОЖИДАЕТ ТВОЕГО ПОДТВЕРЖДЕНИЯ", color = Color(0xFFD7C5FF), fontWeight = FontWeight.Bold)
+                                    Text("Команда: $commandName", color = Color.White)
+                                    Text(payload.toString(), color = muted)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Button(
+                                            enabled = !busy,
+                                            modifier = Modifier.weight(1f),
+                                            onClick = {
+                                                runTask("Выполняю подтверждённую команду…") {
+                                                    val base = prefs.getString(DevicePrefs.SERVER_URL, null)
+                                                        ?: throw IllegalStateException("Адрес сервера не задан")
+                                                    val token = prefs.getString(DevicePrefs.DEVICE_TOKEN, null)
+                                                        ?: throw IllegalStateException("Устройство не спарено")
+                                                    try {
+                                                        val resultMessage = withContext(Dispatchers.IO) {
+                                                            when (commandName) {
+                                                                "tap" -> {
+                                                                    RootController.tap(payload.getInt("x"), payload.getInt("y"))
+                                                                    "Нажатие выполнено"
+                                                                }
+                                                                "swipe" -> {
+                                                                    RootController.swipe(
+                                                                        payload.getInt("x1"), payload.getInt("y1"),
+                                                                        payload.getInt("x2"), payload.getInt("y2"),
+                                                                        payload.optInt("durationMs", 350)
+                                                                    )
+                                                                    "Свайп выполнен"
+                                                                }
+                                                                "launch_app" -> {
+                                                                    val packageName = payload.getString("packageName")
+                                                                    RootController.launchApp(packageName)
+                                                                    "Запуск приложения отправлен: $packageName"
+                                                                }
+                                                                else -> throw IllegalArgumentException("Неизвестный тип команды")
+                                                            }
+                                                        }
+                                                        withContext(Dispatchers.IO) {
+                                                            DeviceApi.submitResult(base, token, commandId, "completed", JSONObject().put("message", resultMessage))
+                                                        }
+                                                        prefs.edit().remove(DevicePrefs.PENDING_COMMAND).apply()
+                                                        resultMessage
+                                                    } catch (e: Exception) {
+                                                        withContext(Dispatchers.IO) {
+                                                            runCatching {
+                                                                DeviceApi.submitResult(base, token, commandId, "failed", JSONObject().put("error", e.message ?: "Execution failed"))
+                                                            }
+                                                        }
+                                                        prefs.edit().remove(DevicePrefs.PENDING_COMMAND).apply()
+                                                        throw e
+                                                    }
+                                                }
+                                            }
+                                        ) { Text("РАЗРЕШИТЬ") }
+                                        OutlinedButton(
+                                            enabled = !busy,
+                                            modifier = Modifier.weight(1f),
+                                            onClick = {
+                                                runTask("Отклоняю запрос…") {
+                                                    val base = prefs.getString(DevicePrefs.SERVER_URL, null)
+                                                        ?: throw IllegalStateException("Адрес сервера не задан")
+                                                    val token = prefs.getString(DevicePrefs.DEVICE_TOKEN, null)
+                                                        ?: throw IllegalStateException("Устройство не спарено")
+                                                    withContext(Dispatchers.IO) {
+                                                        DeviceApi.submitResult(base, token, commandId, "rejected", JSONObject().put("message", "Rejected by device owner"))
+                                                    }
+                                                    prefs.edit().remove(DevicePrefs.PENDING_COMMAND).apply()
+                                                    "Запрос отклонён."
+                                                }
+                                            }
+                                        ) { Text("ОТКЛОНИТЬ") }
                                     }
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) { Text("СДЕЛАТЬ СКРИНШОТ") }
-                            screenshot?.let { bitmap ->
-                                Image(
-                                    bitmap = bitmap.asImageBitmap(),
-                                    contentDescription = "Снимок экрана устройства",
-                                    modifier = Modifier.fillMaxWidth(),
-                                    contentScale = ContentScale.Fit
-                                )
+                                }
                             }
                         }
                     }
 
+                    Text("СТАТУС", color = muted)
                     Card(colors = CardDefaults.cardColors(containerColor = panel), shape = RoundedCornerShape(16.dp)) {
-                        Column(Modifier.padding(16.dp)) {
-                            Text("СТАТУС", color = muted)
-                            Text(message, color = Color.White)
+                        Column(Modifier.padding(16.dp)) { Text(message, color = Color.White) }
+                    }
+
+                    Card(colors = CardDefaults.cardColors(containerColor = panel), shape = RoundedCornerShape(16.dp)) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("ЗАЩИТА", fontWeight = FontWeight.Bold)
+                            Text(
+                                "ChatGPT может только поставить команду в очередь. TAP, SWIPE и запуск приложений выполняются только после нажатия «РАЗРЕШИТЬ» здесь. Произвольной удалённой shell-команды нет.",
+                                color = muted,
+                                style = MaterialTheme.typography.bodySmall
+                            )
                         }
                     }
 
-                    Text(
-                        "Root-команды запускаются только после действия пользователя и разрешения KernelSU. В приложение не встроен произвольный удалённый shell. Не отправляй команды на устройства, которыми не владеешь.",
-                        color = muted,
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                    OutlinedButton(
+                        onClick = { startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).setData(android.net.Uri.parse("package:$packageName"))) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("СВЕДЕНИЯ О ПРИЛОЖЕНИИ") }
                 }
             }
         }
     }
-}
-
-@Composable
-private fun CoordinateField(label: String, value: String, onValueChange: (String) -> Unit, modifier: Modifier = Modifier) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = { next -> if (next.length <= 6 && next.all(Char::isDigit)) onValueChange(next) },
-        label = { Text(label) },
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-        modifier = modifier
-    )
 }
 
 @Composable
