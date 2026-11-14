@@ -1,24 +1,20 @@
 # GORILLA CONTROL
 
-Local-first Android device controller for a device owned by the user.
+Android + KernelSU device controller with a remote ChatGPT MCP bridge.
 
-## Current milestone: Root Control 0.3.0
-- Dark dashboard for Xiaomi Redmi Pad 2 Pro / HyperOS 3 / Android 16.
-- KernelSU root availability check.
-- User-initiated screen tap and swipe through a fixed allowlist of Android shell commands.
-- User-initiated app launch using a validated package name.
-- User-initiated PNG screenshot using `screencap -p`.
-- No Accessibility Service requirement. This avoids the Android 13+ Restricted Settings gate for Accessibility.
+## Android app
+The app uses a local allowlist of Root operations and a foreground HTTPS polling connection to the paired Worker. It does not require Accessibility. Remote tap, swipe and app-launch requests remain queued until the device owner taps **РАЗРЕШИТЬ** in the app.
 
-## Install and use
-1. Install the debug APK built by GitHub Actions.
-2. Open GORILLA CONTROL.
-3. Tap **ПРОВЕРИТЬ ROOT** and approve the KernelSU prompt for this app.
-4. Use screen coordinates for TAP/SWIPE. Coordinates are validated against the current output of `wm size`.
-5. Use screenshot to verify the current display.
+## Remote MCP server
+See [server/README.md](server/README.md) for Cloudflare D1/KV provisioning, GitHub Actions secrets, deployment and ChatGPT setup.
 
-## Security model
-Root commands are fixed functions; the app does not expose a free-form shell command box or a network listener. Root permission remains controlled by KernelSU. Do not grant Root to an app you do not trust. Screenshots and touch input can expose private on-screen information and affect the device.
+## Build APK
+Open **Actions → Android CI**. The workflow builds a debug APK and uploads it as `gorilla-control-debug-apk`.
 
-## Scope
-This milestone is local-only. Direct ChatGPT/MCP connectivity is not present yet. A future remote link must use authenticated encrypted transport, per-command approval and explicit pairing. No hidden monitoring or stealth control is implemented.
+## Deploy MCP server
+Open **Actions → Deploy GORILLA MCP → Run workflow** after adding the required Cloudflare and pairing secrets to repository Actions Secrets.
+
+## Limitations
+- No arbitrary remote shell, hidden screen monitoring, or inbound ADB listener.
+- The app requires the user to pair it with a Cloudflare Worker and approve each command.
+- ChatGPT custom MCP write actions require a compatible ChatGPT workspace/account and are connected on the web, not the mobile app.

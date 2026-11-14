@@ -376,43 +376,72 @@ const defaultHandler: ExportedHandler<Env> = {
       return Response.redirect(redirect.toString(), 302);
     }
 
-    const client = await env.OAUTH_PROVIDER.lookupClient(oauthRequest.clientId);
-    if (!client) return html("<h1>Unknown OAuth client</h1>", 400);
-
     const action = `/authorize${url.search}`;
     if (request.method === "GET") {
-      const requestedControl = oauthRequest.scope.includes("mcp:control");
-      return html(`<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GORILLA CONTROL authorization</title>
-      <style>body{background:#090b10;color:#f4f4f5;font:16px system-ui;margin:0;padding:28px}main{max-width:520px;margin:8vh auto;background:#171c26;padding:28px;border-radius:20px}label{display:block;margin:18px 0}input{padding:12px;border-radius:9px;border:1px solid #555;background:#090b10;color:white;width:100%;box-sizing:border-box}button{background:#8b5cf6;color:white;border:0;padding:14px 20px;border-radius:10px;font-weight:700;width:100%}.muted{color:#aeb6c4}</style>
-      <main><h1>GORILLA CONTROL</h1><p>${escapeHtml(client.clientName ?? "ChatGPT")} requests access to your paired Android device.</p>
-      <p class="muted">Read status: ${oauthRequest.scope.includes("mcp:read") ? "requested" : "not requested"}</p>
-      ${requestedControl ? '<p class="muted">Control tools can queue commands. Each action still requires approval on the tablet.</p>' : '<p class="muted">Control scope was not requested by the client.</p>'}
-      <form method="post" action="${escapeHtml(action)}"><label>Owner passphrase<input type="password" name="passphrase" required autocomplete="current-password"></label>
-      ${requestedControl ? '<label><input type="checkbox" name="allowControl" value="on" checked style="width:auto"> Grant mcp:control</label>' : ""}
-      <button type="submit">Authorize ChatGPT</button></form><p class="muted">You can revoke access from the MCP app settings. Remote commands are always confirmed on the device.</p></main></html>`);
+      const details = await env.OAUTH_PROVIDER.describeConsent(oauthRequest);
+      const consent = await env.OAUTH_PROVIDER.beginConsent(oauthRequest);
+      const scopeFields = details.scope
+        .filter((scope) => scope !== "mcp:read")
+        .map((scope) => {
+          const checked = scope === "mcp:control" || scope === "offline_access" ? " checked" : "";
+          return `<label><input type="checkbox" name="scope" value="${escapeHtml(scope)}"${checked} style="width:auto"> ${escapeHtml(scope)}</label>`;
+        }).join("");
+      const page = `<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GORILLA CONTROL authorization</title>
+      <style>
+      body{background:#090b10;color:#f4f4f5;font:16px system-ui;margin:0;padding:28px}
+      main{max-width:540px;margin:6vh auto;background:#171c26;padding:28px;border-radius:20px}
+      label{display:block;margin:16px 0}
+      input[type=password]{padding:12px;border-radius:9px;border:1px solid #555;background:#090b10;color:white;width:100%;box-sizing:border-box}
+      input[type=checkbox]{width:auto}
+      button{background:#8b5cf6;color:white;border:0;padding:14px 20px;border-radius:10px;font-weight:700;width:100%;margin-top:10px}
+      button.deny{background:#343844}.muted{color:#aeb6c4}.warning{color:#f5c56b}
+      </style>
+      <main><h1>GORILLA CONTROL</h1>
+      <p>Приложение <strong>${escapeHtml(details.clientName)}</strong> запрашивает доступ к сопряжённому Android-планшету.</p>
+      ${details.clientDomain ? `<p class="muted">Проверенный домен клиента: <strong>${escapeHtml(details.clientDomain)}</strong></p>` : '<p class="muted">Имя клиента предоставлено самим приложением и не проверено.</p>'}
+      <p>OAuth-токен будет отправлен на: <strong>${escapeHtml(details.redirectHost)}</strong></p>
+      ${details.redirectIsLoopback ? '<p class="warning">Внимание: адрес возврата ведёт в локальное приложение на этом устройстве.</p>' : ""}
+      <p class="muted">Обязательное разрешение: mcp:read. Запросы управления всё равно требуют подтверждения на планшете.</p>
+      <form method="post" action="${escapeHtml(action)}">
+        <input type="hidden" name="handle" value="${escapeHtml(consent.handle)}">
+        <input type="hidden" name="scope" value="mcp:read">
+        ${scopeFields}
+        <label>Пароль владельца<input type="password" name="passphrase" required autocomplete="current-password"></label>
+        <button type="submit" name="decision" value="approve">Разрешить ChatGPT</button>
+        <button class="deny" type="submit" name="decision" value="deny">Отклонить</button>
+      </form>
+      <p class="muted">Каждое нажатие, свайп или запуск приложения дополнительно подтверждается на самом планшете.</p>
+      </main></html>`;
+      consent.headers.set("Content-Type", "text/html; charset=utf-8");
+      return new Response(page, { status: 200, headers: consent.headers });
     }
 
     if (request.method === "POST") {
       const form = await request.formData();
+      const handle = String(form.get("handle") ?? "");
+      if (form.get("decision") !== "approve") {
+        const denied = await env.OAUTH_PROVIDER.denyConsent(request, handle);
+        return new Response(null, { status: 302, headers: denied.headers });
+      }
+
       const passphrase = String(form.get("passphrase") ?? "");
       if (!env.OWNER_PASSPHRASE || !sameSecret(passphrase, env.OWNER_PASSPHRASE)) {
-        return html("<h1>Authorization failed</h1><p>Incorrect owner passphrase. Close this page and start the connection again.</p>", 401);
+        return html("<h1>Authorization failed</h1><p>Неверный пароль владельца. Вернись назад и повтори подтверждение.</p>", 401);
       }
-      const requested = new Set(oauthRequest.scope);
-      const scopes = ["mcp:read"];
-      if (requested.has("mcp:control") && form.get("allowControl") === "on") scopes.push("mcp:control");
-      if (requested.has("offline_access")) scopes.push("offline_access");
 
+      const scopes = form.getAll("scope").map(String);
+      if (!scopes.includes("mcp:read")) scopes.push("mcp:read");
+      const approved = await env.OAUTH_PROVIDER.approveConsent(request, handle, { scope: scopes });
       const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
-        request: oauthRequest,
+        request: approved.request,
         userId: "owner",
-        metadata: { clientName: client.clientName },
-        scope: scopes,
-        props: { userId: "owner", scopes }
+        metadata: { clientName: "GORILLA CONTROL owner" },
+        scope: approved.request.scope,
+        props: { userId: "owner", scopes: approved.request.scope }
       });
-      return Response.redirect(redirectTo, 302);
+      approved.headers.set("Location", redirectTo);
+      return new Response(null, { status: 302, headers: approved.headers });
     }
-
     return json({ error: "method_not_allowed" }, 405);
   }
 };
