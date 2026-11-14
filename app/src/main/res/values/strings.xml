@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">GORILLA CONTROL</string>
+    <!-- Kept for the legacy XML resource file; no Accessibility service is registered in the manifest. -->
+    <string name="accessibility_description">Legacy compatibility resource; GORILLA CONTROL uses local KernelSU Root controls.</string>
+    <string name="accessibility_service_label">Legacy unused service label</string>
 </resources>
