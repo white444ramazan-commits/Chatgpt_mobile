@@ -454,8 +454,8 @@ export default new OAuthProvider<Env>({
   tokenEndpoint: "/oauth/token",
   clientRegistrationEndpoint: "/oauth/register",
   resourceMetadata: {
-    resource: env.MCP_RESOURCE,
-    authorization_servers: [new URL(env.MCP_RESOURCE).origin],
+    resource: (env as unknown as Env).MCP_RESOURCE,
+    authorization_servers: [new URL((env as unknown as Env).MCP_RESOURCE).origin],
     scopes_supported: ["mcp:read", "mcp:control"],
     resource_name: APP_NAME
   },
